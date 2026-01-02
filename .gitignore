@@ -1,0 +1,40 @@
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# --- Go Specific ---
+backend/bin/
+backend/vendor/
+tmp/
+main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# --- React/Node Specific ---
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Docker & Infrastructure ---
+postgres_data/
+redis_data/
+kafka_data/
+
+# --- AWS / Terraform (If you add it later) ---
+.terraform/
+*.tfstate
+*.tfstate.backup
