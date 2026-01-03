@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package telemetry.v1;
+
+option go_package = "github.com/THETITAN220/GeoStream/proto/telemetry/v1";
+
+message SendDataRequest {
+  string truck_id = 1;
+  double latitude = 2;
+  double longitude = 3;
+  double speed = 4;
+  double engine_temp = 5;
+  string timestamp = 6;
+}
+
+message SendDataResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+service TelemetryService {
+  rpc SendData(SendDataRequest) returns (SendDataResponse);
+}

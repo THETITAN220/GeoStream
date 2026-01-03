@@ -38,3 +38,12 @@ kafka_data/
 .terraform/
 *.tfstate
 *.tfstate.backup
+
+# --- Python Specific ---
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
