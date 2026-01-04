@@ -36,7 +36,7 @@ func main() {
 	
 	log.Println("****Starting server****")
 	writer := &kafka.Writer{
-		Addr:     kafka.TCP("geostream-kafka:29092"), 
+		Addr:     kafka.TCP("geostream-kafka:9092"), 
 		Topic:    "truck-telemetry",
 		Balancer: &kafka.Hash{}, // Ensures same TruckID always goes to same partition
 	}
