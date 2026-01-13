@@ -2,12 +2,12 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
 	pb "github.com/THETITAN220/GeoStream/proto/telemetry/v1"
 	"github.com/segmentio/kafka-go"
-	"google.golang.org/protobuf/proto"
 )
 
 type TelemetryConsumer struct {
@@ -38,7 +38,7 @@ func (c *TelemetryConsumer) Start(ctx context.Context, dataChan chan<- *pb.SendD
 		}
 
 		var telemetry pb.SendDataRequest
-		if err := proto.Unmarshal(msg.Value, &telemetry); err != nil {
+		if err := json.Unmarshal(msg.Value, &telemetry); err != nil {
 			log.Printf(" Failed to unmarshal telemetry: %v", err)
 			continue
 		}
