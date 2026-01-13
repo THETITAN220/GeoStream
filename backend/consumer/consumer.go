@@ -34,7 +34,7 @@ func (c *TelemetryConsumer) Start(ctx context.Context, dataChan chan<- *pb.SendD
 	for {
 		msg, err := c.reader.ReadMessage(ctx)
 		if err != nil {
-			log.Fatalf("Could not read the message: %v", err)
+			log.Printf("Could not read the message: %v", err)
 		}
 
 		var telemetry pb.SendDataRequest
