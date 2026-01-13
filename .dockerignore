@@ -1,0 +1,6 @@
+venv/
+.venv/
+frontend/ui/node_modules/
+postgres_data/
+kafka_data/
+.git/

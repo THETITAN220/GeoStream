@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net"
+	"net/http"
 
 	"github.com/THETITAN220/GeoStream/backend/consumer"
 	pb "github.com/THETITAN220/GeoStream/proto/telemetry/v1"
@@ -63,6 +64,41 @@ func startGRPCServer(writer *kafka.Writer) {
 	}
 }
 
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any frontend
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func startRESTServer(db *sql.DB) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /truck/{id}", func(w http.ResponseWriter, r *http.Request) {
+		truckID := r.PathValue("id")
+
+		location, err := GetLatestLocation(db, truckID)
+		if err != nil {
+			http.Error(w, "Truck Not Found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(location)
+	})
+
+	log.Println(" NATIVE REST API RUNNING ON :8080...")
+	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
+}
+
 func (s *server) SendData(ctx context.Context, req *pb.SendDataRequest) (*pb.SendDataResponse, error) {
 	payload, _ := json.Marshal(req)
 
@@ -92,6 +128,8 @@ func main() {
 	dataChan := make(chan *pb.SendDataRequest, 100)
 
 	startBackgroundWorkers(db, dataChan)
+
+	go startRESTServer(db)
 
 	startGRPCServer(writer)
 }

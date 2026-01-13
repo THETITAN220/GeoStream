@@ -20,7 +20,7 @@ func NewTelemetryConsumer(brokers []string, topic, groupID string) *TelemetryCon
 			Brokers:  brokers,
 			Topic:    topic,
 			GroupID:  groupID,
-			MinBytes: 10e3,
+			MinBytes: 1,
 			MaxBytes: 10e6,
 		}),
 	}
@@ -36,15 +36,15 @@ func (c *TelemetryConsumer) Start(ctx context.Context, dataChan chan<- *pb.SendD
 		if err != nil {
 			log.Printf("Could not read the message: %v", err)
 		}
-
+		fmt.Printf("🔍 DEBUG: Kafka message received (key: %s)\n", string(msg.Key))
 		var telemetry pb.SendDataRequest
 		if err := json.Unmarshal(msg.Value, &telemetry); err != nil {
 			log.Printf(" Failed to unmarshal telemetry: %v", err)
 			continue
 		}
-
+		fmt.Printf("🔍 DEBUG: Sending to channel: %s\n", telemetry.TruckId)
 		dataChan <- &telemetry
-
+		fmt.Println("🔍 DEBUG: Sent to channel successfully")
 	}
 
 }
