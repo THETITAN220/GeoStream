@@ -17,7 +17,7 @@ def run_simulation():
     stub = telemetry_pb2_grpc.TelemetryServiceStub(channel)
 
     truck_id = "TRUCK-001"
-    lat, lon = 40.7128, -74.0060  # Starting Coordinates (NYC)
+    lat, lon = 40.7128, -74.0060
 
     print(f"🚀 Simulation started for {truck_id}...")
     print("Press Ctrl+C to stop.")
@@ -37,7 +37,6 @@ def run_simulation():
             )
 
             try:
-                # 5. Send the data to the Go Backend
                 response = stub.SendData(request)
 
                 if response.success:
