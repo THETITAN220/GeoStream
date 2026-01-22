@@ -10,9 +10,17 @@ import (
 
 	"github.com/THETITAN220/GeoStream/backend/consumer"
 	pb "github.com/THETITAN220/GeoStream/proto/telemetry/v1"
+	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
 	"google.golang.org/grpc"
 )
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+var clients = make(map[*websocket.Conn]bool)
+var broadcast = make(chan *pb.SendDataRequest)
 
 type server struct {
 	pb.UnimplementedTelemetryServiceServer
@@ -44,8 +52,19 @@ func initDB() *sql.DB {
 
 func startBackgroundWorkers(db *sql.DB, dataChan chan *pb.SendDataRequest) {
 	c := consumer.NewTelemetryConsumer([]string{"geostream-kafka:9092"}, "truck-telemetry", "geostream-group")
+
 	go c.Start(context.Background(), dataChan)
-	go SaveToDB(db, dataChan)
+
+	go startBroadcastWorker()
+
+	go func() {
+		for data := range dataChan {
+			broadcast <- data
+			go SaveToDB(db, data)
+		}
+	}()
+
+
 	log.Println(" BACKGROUND WORKERS INITIALIZD")
 }
 
@@ -94,6 +113,8 @@ func startRESTServer(db *sql.DB) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(location)
 	})
+	
+	mux.HandleFunc("/ws", handleWebSockets)
 
 	log.Println(" NATIVE REST API RUNNING ON :8080...")
 	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
@@ -113,6 +134,40 @@ func (s *server) SendData(ctx context.Context, req *pb.SendDataRequest) (*pb.Sen
 
 	log.Printf(" Ingested: Truck %s | Lat: %.4f", req.TruckId, req.Latitude)
 	return &pb.SendDataResponse{Success: true, Message: "Stored in Kafka"}, nil
+}
+
+func handleWebSockets(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
+	}
+	defer conn.Close()
+
+	clients[conn] = true
+	log.Println("WebSocket connection is successful")
+
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			delete(clients, conn)
+			log.Println("Client disconnected")
+			break
+		}
+	}
+
+}
+
+func startBroadcastWorker() {
+	for {
+		data := <-broadcast
+		for client := range clients {
+			err := client.WriteJSON(data)
+			if err != nil {
+				log.Printf("WebSocket write error: %v", err)
+			}
+			client.Close()
+			delete(clients, client)
+		}
+	}
 }
 
 func main() {
