@@ -61,36 +61,57 @@ func initDB() *sql.DB {
 	return db
 }
 
+func waitForKafka(brokers []string, topic string) {
+	log.Println("⏳ Waiting for Kafka to be ready...")
+	
+	for i := range 30 {
+		conn, err := kafka.DialLeader(context.Background(), "tcp", brokers[0], topic, 0)
+		if err == nil {
+			conn.Close()
+			log.Println("✅ Kafka is ready!")
+			return
+		}
+		
+		if i%5 == 0 {
+			log.Printf("⏳ Kafka not ready yet... attempt %d/30 (error: %v)", i+1, err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+	log.Fatal("❌ Kafka not available after 30 seconds")
+}
+
 func startFanoutWorker(
 	in <-chan *pb.SendDataRequest,
 	dbChan chan<- *pb.SendDataRequest,
 	wsChan chan<- *pb.SendDataRequest,
 ) {
+	log.Println("🔀 Fanout worker started")
 	for data := range in {
 		dbChan <- data
 		select {
 		case wsChan <- data:
 		default:
-			log.Println("Websocket buffer full")
+			log.Println("⚠️ Websocket buffer full")
 		}
 	}
 }
 
 func startBackgroundWorkers(db *sql.DB) {
-	c := consumer.NewTelemetryConsumer(
-		[]string{"geostream-kafka:9092"},
-		"truck-telemetry",
-		"geostream-group",
-	)
-
+	brokers := []string{"geostream-kafka:9092"}
+	topic := "truck-telemetry"
+	
+	waitForKafka(brokers, topic)
+	
+	c := consumer.NewTelemetryConsumer(brokers, topic, "geostream-group")
+	
+	// Start consumer in background
 	go c.Start(context.Background(), dataChan)
-
+	
+	log.Println("⏳ Waiting for consumer to join group...")
 	time.Sleep(5 * time.Second)
-
+	
 	go startFanoutWorker(dataChan, dbChan, wsChan)
-
 	go SaveToDB(db, dbChan)
-
 	go startBroadcastWorker()
 
 	log.Println("✅ BACKGROUND WORKERS INITIALIZED")
@@ -104,10 +125,11 @@ func (s *server) SendData(ctx context.Context, req *pb.SendDataRequest) (*pb.Sen
 		Value: payload,
 	})
 	if err != nil {
+		log.Printf("❌ Kafka write error: %v", err)
 		return &pb.SendDataResponse{Success: false, Message: "Kafka Error"}, err
 	}
 
-	log.Printf("📥 Ingested: Truck=%s Lat=%.4f", req.TruckId, req.Latitude)
+	log.Printf("📥 Ingested: Truck=%s Lat=%.4f Lng=%.4f", req.TruckId, req.Latitude, req.Longitude)
 	return &pb.SendDataResponse{Success: true, Message: "Stored in Kafka"}, nil
 }
 
@@ -169,10 +191,12 @@ func handleWebSockets(w http.ResponseWriter, r *http.Request) {
 }
 
 func startBroadcastWorker() {
+	log.Println("📡 Broadcast worker started")
 	for data := range wsChan {
 		clientsMu.Lock()
 		for client := range clients {
 			if err := client.WriteJSON(data); err != nil {
+				log.Printf("⚠️ Failed to send to WebSocket client: %v", err)
 				client.Close()
 				delete(clients, client)
 			}
