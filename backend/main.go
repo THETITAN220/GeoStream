@@ -67,7 +67,11 @@ func startFanoutWorker(
 ) {
 	for data := range in {
 		dbChan <- data
-		wsChan <- data
+		select {
+		case wsChan <- data:
+		default:
+			log.Println("Websocket buffer full")
+		}
 	}
 }
 
