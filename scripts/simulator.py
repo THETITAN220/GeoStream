@@ -22,6 +22,8 @@ def run_simulation():
     print(f"🚀 Simulation started for {truck_id}...")
     print("Press Ctrl+C to stop.")
 
+    count = 1
+
     try:
         while True:
             lat += random.uniform(-0.0005, 0.0005)
@@ -41,8 +43,9 @@ def run_simulation():
 
                 if response.success:
                     print(
-                        f"✅ Sent: {truck_id} | Pos: ({lat:.4f}, {lon:.4f}) | Msg: {response.message}"
+                        f"✅ Sent: #{count} {truck_id} | Pos: ({lat:.4f}, {lon:.4f}) | Msg: {response.message}"
                     )
+                    count = count + 1
                 else:
                     print(f"⚠️ Backend rejected data: {response.message}")
 

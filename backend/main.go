@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/THETITAN220/GeoStream/backend/consumer"
 	pb "github.com/THETITAN220/GeoStream/proto/telemetry/v1"
@@ -83,6 +84,8 @@ func startBackgroundWorkers(db *sql.DB) {
 	)
 
 	go c.Start(context.Background(), dataChan)
+
+	time.Sleep(5 * time.Second)
 
 	go startFanoutWorker(dataChan, dbChan, wsChan)
 
