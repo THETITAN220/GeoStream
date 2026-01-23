@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/THETITAN220/GeoStream/backend/consumer"
 	pb "github.com/THETITAN220/GeoStream/proto/telemetry/v1"
@@ -19,8 +20,16 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-var clients = make(map[*websocket.Conn]bool)
-var broadcast = make(chan *pb.SendDataRequest)
+var (
+	clients   = make(map[*websocket.Conn]bool)
+	clientsMu sync.Mutex
+)
+
+var (
+	dataChan = make(chan *pb.SendDataRequest, 100)
+	dbChan   = make(chan *pb.SendDataRequest, 100)
+	wsChan   = make(chan *pb.SendDataRequest, 100)
+)
 
 type server struct {
 	pb.UnimplementedTelemetryServiceServer
@@ -31,61 +40,88 @@ func initKafkaWriter() *kafka.Writer {
 	return &kafka.Writer{
 		Addr:     kafka.TCP("geostream-kafka:9092"),
 		Topic:    "truck-telemetry",
-		Balancer: &kafka.Hash{}, // Ensures same TruckID always goes to same partition
+		Balancer: &kafka.Hash{},
 	}
-
 }
 
 func initDB() *sql.DB {
-
 	connStr := "host=postgres user=geo password=geostream dbname=geostream sslmode=disable"
+
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatalf(" FAILED TO CONNECT TO THE DATABASE: %v", err)
+		log.Fatalf("❌ FAILED TO CONNECT TO DB: %v", err)
 	}
+
 	if err := db.Ping(); err != nil {
-		log.Fatalf(" DB PING FAILED: %v", err)
+		log.Fatalf("❌ DB PING FAILED: %v", err)
 	}
-	log.Println(" CONNECTED TO THE DB")
+
+	log.Println("✅ CONNECTED TO DATABASE")
 	return db
 }
 
-func startBackgroundWorkers(db *sql.DB, dataChan chan *pb.SendDataRequest) {
-	c := consumer.NewTelemetryConsumer([]string{"geostream-kafka:9092"}, "truck-telemetry", "geostream-group")
+func startFanoutWorker(
+	in <-chan *pb.SendDataRequest,
+	dbChan chan<- *pb.SendDataRequest,
+	wsChan chan<- *pb.SendDataRequest,
+) {
+	for data := range in {
+		dbChan <- data
+		wsChan <- data
+	}
+}
+
+func startBackgroundWorkers(db *sql.DB) {
+	c := consumer.NewTelemetryConsumer(
+		[]string{"geostream-kafka:9092"},
+		"truck-telemetry",
+		"geostream-group",
+	)
 
 	go c.Start(context.Background(), dataChan)
 
+	go startFanoutWorker(dataChan, dbChan, wsChan)
+
+	go SaveToDB(db, dbChan)
+
 	go startBroadcastWorker()
 
-	go func() {
-		for data := range dataChan {
-			broadcast <- data
-			go SaveToDB(db, data)
-		}
-	}()
+	log.Println("✅ BACKGROUND WORKERS INITIALIZED")
+}
 
+func (s *server) SendData(ctx context.Context, req *pb.SendDataRequest) (*pb.SendDataResponse, error) {
+	payload, _ := json.Marshal(req)
 
-	log.Println(" BACKGROUND WORKERS INITIALIZD")
+	err := s.writer.WriteMessages(ctx, kafka.Message{
+		Key:   []byte(req.TruckId),
+		Value: payload,
+	})
+	if err != nil {
+		return &pb.SendDataResponse{Success: false, Message: "Kafka Error"}, err
+	}
+
+	log.Printf("📥 Ingested: Truck=%s Lat=%.4f", req.TruckId, req.Latitude)
+	return &pb.SendDataResponse{Success: true, Message: "Stored in Kafka"}, nil
 }
 
 func startGRPCServer(writer *kafka.Writer) {
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Fatalf("❌ FAILED TO LISTEN: %v", err)
 	}
 
 	s := grpc.NewServer()
 	pb.RegisterTelemetryServiceServer(s, &server{writer: writer})
 
-	log.Println(" Ingestor running on :50051...")
+	log.Println("🚀 gRPC INGESTOR RUNNING ON :50051")
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("FAILED TO SERVE: %v", err)
+		log.Fatalf("❌ GRPC SERVE ERROR: %v", err)
 	}
 }
 
 func enableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any frontend
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -93,9 +129,49 @@ func enableCORS(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
+}
+
+func handleWebSockets(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("❌ WebSocket upgrade error: %v", err)
+		return
+	}
+
+	clientsMu.Lock()
+	clients[conn] = true
+	clientsMu.Unlock()
+
+	log.Println("🔌 WebSocket client connected")
+
+	defer func() {
+		clientsMu.Lock()
+		delete(clients, conn)
+		clientsMu.Unlock()
+		conn.Close()
+		log.Println("🔌 WebSocket client disconnected")
+	}()
+
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+}
+
+func startBroadcastWorker() {
+	for data := range wsChan {
+		clientsMu.Lock()
+		for client := range clients {
+			if err := client.WriteJSON(data); err != nil {
+				client.Close()
+				delete(clients, client)
+			}
+		}
+		clientsMu.Unlock()
+	}
 }
 
 func startRESTServer(db *sql.DB) {
@@ -113,66 +189,15 @@ func startRESTServer(db *sql.DB) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(location)
 	})
-	
+
 	mux.HandleFunc("/ws", handleWebSockets)
 
-	log.Println(" NATIVE REST API RUNNING ON :8080...")
+	log.Println("🌐 REST API RUNNING ON :8080")
 	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
 }
 
-func (s *server) SendData(ctx context.Context, req *pb.SendDataRequest) (*pb.SendDataResponse, error) {
-	payload, _ := json.Marshal(req)
-
-	err := s.writer.WriteMessages(ctx, kafka.Message{
-		Key:   []byte(req.TruckId),
-		Value: payload,
-	})
-
-	if err != nil {
-		return &pb.SendDataResponse{Success: false, Message: "Kafka Error"}, err
-	}
-
-	log.Printf(" Ingested: Truck %s | Lat: %.4f", req.TruckId, req.Latitude)
-	return &pb.SendDataResponse{Success: true, Message: "Stored in Kafka"}, nil
-}
-
-func handleWebSockets(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
-	}
-	defer conn.Close()
-
-	clients[conn] = true
-	log.Println("WebSocket connection is successful")
-
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			delete(clients, conn)
-			log.Println("Client disconnected")
-			break
-		}
-	}
-
-}
-
-func startBroadcastWorker() {
-	for {
-		data := <-broadcast
-		for client := range clients {
-			err := client.WriteJSON(data)
-			if err != nil {
-				log.Printf("WebSocket write error: %v", err)
-			}
-			client.Close()
-			delete(clients, client)
-		}
-	}
-}
-
 func main() {
-
-	log.Println("****Starting GeoStream Server****")
+	log.Println("🚚 **** Starting GeoStream Server ****")
 
 	writer := initKafkaWriter()
 	defer writer.Close()
@@ -180,9 +205,7 @@ func main() {
 	db := initDB()
 	defer db.Close()
 
-	dataChan := make(chan *pb.SendDataRequest, 100)
-
-	startBackgroundWorkers(db, dataChan)
+	startBackgroundWorkers(db)
 
 	go startRESTServer(db)
 

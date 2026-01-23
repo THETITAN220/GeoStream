@@ -8,23 +8,25 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func SaveToDB(db *sql.DB, data *pb.SendDataRequest) {
+func SaveToDB(db *sql.DB, dataChan <-chan *pb.SendDataRequest) {
 	log.Println("🛠️ Database worker is waiting for data...")
 	query := `INSERT INTO truck_locations (truck_id, latitude, longitude, speed, engine_temp, sent_at) VALUES ($1,$2,$3,$4,$5,$6)`
 
-	log.Printf("🔍 DEBUG: Truck Data Received: %s", data.TruckId)
-	_, err := db.Exec(query,
-		data.TruckId,
-		data.Latitude,
-		data.Longitude,
-		data.Speed,
-		data.EngineTemp,
-		data.Timestamp)
-	if err != nil {
-		log.Printf(" X DB INSERT ERROR: %v", err)
-		return
+	for data := range dataChan {
+		log.Printf("🔍 DEBUG: Worker pulled from channel: %s", data.TruckId)
+		_, err := db.Exec(query,
+			data.TruckId,
+			data.Latitude,
+			data.Longitude,
+			data.Speed,
+			data.EngineTemp,
+			data.Timestamp)
+		if err != nil {
+			log.Printf(" X DB INSERT ERROR: %v", err)
+			continue
+		}
+		log.Printf(" SAVED TO DB: %s", data.TruckId)
 	}
-	log.Printf(" SAVED TO DB: %s", data.TruckId)
 
 }
 
