@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import useWebSocket from 'react-use-websocket';
 import 'leaflet/dist/leaflet.css';
@@ -25,7 +25,7 @@ interface TruckTelemetry {
 
 const App: React.FC = () => {
     const [fleet, setFleet] = useState<Record<string, TruckTelemetry>>({});
-    
+
     const BENGALURU_CENTER: [number, number] = [12.9716, 77.5946];
     const WS_URL = 'ws://localhost:8080/ws';
 
@@ -58,7 +58,7 @@ const App: React.FC = () => {
                 <div style={{ fontSize: '1.1rem', color: '#2563eb', marginBottom: '1rem' }}>
                     Active Trucks: <strong>{Object.keys(fleet).length}</strong>
                 </div>
-                
+
                 <div style={{ maxHeight: '300px', overflowY: 'auto', fontSize: '0.85rem' }}>
                     {Object.values(fleet).map(truck => (
                         <div key={truck.truck_id} style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #eee' }}>
@@ -68,10 +68,10 @@ const App: React.FC = () => {
                 </div>
             </div>
 
-            <MapContainer 
-                center={BENGALURU_CENTER} 
-                zoom={13} 
-                zoomControl={true} 
+            <MapContainer
+                center={BENGALURU_CENTER}
+                zoom={13}
+                zoomControl={true}
                 style={{ height: '100%', width: '100%' }}
             >
                 <TileLayer
@@ -80,14 +80,14 @@ const App: React.FC = () => {
                 />
 
                 {Object.values(fleet).map((truck) => (
-                    <Marker 
-                        key={truck.truck_id} 
+                    <Marker
+                        key={truck.truck_id}
                         position={[truck.latitude, truck.longitude]}
                     >
                         <Popup>
                             <div style={{ textAlign: 'center' }}>
-                                <strong>{truck.truck_id}</strong><br/>
-                                Speed: {truck.speed.toFixed(1)} km/h<br/>
+                                <strong>{truck.truck_id}</strong><br />
+                                Speed: {truck.speed.toFixed(1)} km/h<br />
                                 Temp: {truck.engine_temp.toFixed(1)}°C
                             </div>
                         </Popup>
