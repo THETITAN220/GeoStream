@@ -43,16 +43,16 @@ func (c *TelemetryConsumer) Start(ctx context.Context, dataChan chan<- *pb.SendD
 			time.Sleep(200 * time.Millisecond)
 			continue
 		}
-		fmt.Printf("🔍 DEBUG: Kafka message received (key: %s)\n", string(msg.Key))
+		fmt.Printf(" DEBUG: Kafka message received (key: %s)\n", string(msg.Key))
 		var telemetry pb.SendDataRequest
 		if err := json.Unmarshal(msg.Value, &telemetry); err != nil {
 			log.Printf(" Failed to unmarshal telemetry: %v", err)
-			c.reader.CommitMessages(ctx,msg)
+			c.reader.CommitMessages(ctx, msg)
 			continue
 		}
-		fmt.Printf("🔍 DEBUG: Sending to channel: %s\n", telemetry.TruckId)
+		fmt.Printf(" DEBUG: Sending to channel: %s\n", telemetry.TruckId)
 		dataChan <- &telemetry
-		fmt.Println("🔍 DEBUG: Sent to channel successfully")
+		fmt.Println(" DEBUG: Sent to channel successfully")
 
 		if err := c.reader.CommitMessages(ctx, msg); err != nil {
 			log.Printf("Failed to commit messages: %v", err)

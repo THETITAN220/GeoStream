@@ -9,11 +9,11 @@ import (
 )
 
 func SaveToDB(db *sql.DB, dataChan <-chan *pb.SendDataRequest) {
-	log.Println("🛠️ Database worker is waiting for data...")
+	log.Println(" Database worker is waiting for data...")
 	query := `INSERT INTO truck_locations (truck_id, latitude, longitude, speed, engine_temp, sent_at) VALUES ($1,$2,$3,$4,$5,$6)`
 
 	for data := range dataChan {
-		log.Printf("🔍 DEBUG: Worker pulled from channel: %s", data.TruckId)
+		log.Printf(" DEBUG: Worker pulled from channel: %s", data.TruckId)
 		_, err := db.Exec(query,
 			data.TruckId,
 			data.Latitude,
